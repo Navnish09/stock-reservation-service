@@ -1,0 +1,35 @@
+{
+  "name": "stock-reservation",
+  "version": "1.0.0",
+  "description": "Concurrency-safe stock reservation API (Node.js + TypeScript + Prisma + PostgreSQL)",
+  "private": true,
+  "prisma": {
+    "schema": "db/schema.prisma"
+  },
+  "scripts": {
+    "migrate": "prisma migrate deploy",
+    "migrate:dev": "prisma migrate dev",
+    "dev": "tsx watch src/server.ts",
+    "worker": "tsx src/worker.ts",
+    "start": "tsx src/server.ts",
+    "loadtest": "tsx scripts/load-test.ts",
+    "compare": "tsx scripts/compare-strategies.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20.12"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "express": "^4.22.3",
+    "ioredis": "^5.11.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.25",
+    "@types/node": "^20.19.43",
+    "prisma": "^6.19.3",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

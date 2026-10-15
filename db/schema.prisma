@@ -1,0 +1,40 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// items        -> the stock counter
+// reservations -> append-only ledger of who reserved what
+model Item {
+  id            BigInt        @id @default(autoincrement())
+  sku           String        @unique
+  totalQuantity Int           @map("total_quantity")
+  available     Int
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime      @default(now()) @map("updated_at") @db.Timestamptz
+  reservations  Reservation[]
+
+  @@map("items")
+}
+
+model Reservation {
+  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  itemId         BigInt            @map("item_id")
+  userId         String            @map("user_id")
+  // quantity = units actually granted; requestedQuantity = what the user asked for.
+  // Reservations are permanent (no expiry/cancel), so there is no status column.
+  quantity          Int
+  requestedQuantity Int               @map("requested_quantity")
+  // Client-supplied key so a retried request does not reserve twice.
+  idempotencyKey String?           @unique @map("idempotency_key")
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  item           Item              @relation(fields: [itemId], references: [id])
+
+  @@index([itemId])
+  @@index([userId])
+  @@map("reservations")
+}

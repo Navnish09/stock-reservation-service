@@ -1,0 +1,1292 @@
+{
+  "info": {
+    "_postman_id": "bfe15af1-5d6c-517a-8caa-89018377add7",
+    "name": "Stock APIs (simple)",
+    "description": "Compact proof of the Stock Reservation API: core rules, concurrency, fast path.\n\n- Start the API (see TESTING-SIMPLE.md), then click Run on the collection and select folders 1 to 4. All green in about 30 s.\n- Every request resets its own item, so you can run any request alone, in any order.\n- Folder 5 is manual (it stops Redis): skip it in the Runner.\n- Variable `baseUrl` = http://localhost:3000. `helpers` holds shared script code: do not edit.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1 · Setup",
+      "item": [
+        {
+          "id": "390eedad-47a5-5bbd-859d-e249a0b0c075",
+          "name": "Health check",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 and status ok', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().status).to.eql('ok'); });",
+                  "pm.test('redis is up', () => pm.expect(pm.response.json().redis).to.eql('up'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "Proves: API, Postgres and Redis are up. Run this first."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": "{{baseUrl}}/health"
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\"status\":\"ok\",\"redis\":\"up\"}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2 · Core rules",
+      "item": [
+        {
+          "id": "4714742b-0c28-568a-8bb4-414f6725c98d",
+          "name": "Set stock",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const d = pm.response.json().data;",
+                  "pm.test('200, stock is 10', () => { pm.response.to.have.status(200); pm.expect(d.available).to.eql(10); pm.expect(d.totalQuantity).to.eql(10); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/items/CORE-STOCK",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 10\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Proves: Stock can be created or reset (idempotent PUT)."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/items/CORE-STOCK",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"quantity\": 10\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\"data\":{\"sku\":\"CORE-STOCK\",\"totalQuantity\":10,\"available\":10}}"
+            }
+          ]
+        },
+        {
+          "id": "8f451f7f-8649-5137-85da-9b77facdb6ff",
+          "name": "Reserve 2 units",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "eval(pm.variables.get('helpers'));",
+                  "(async () => {",
+                  "await call('PUT', '/api/v1/items/CORE-RESERVE', { quantity: 10 });",
+                  "})();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test('201 created', () => pm.response.to.have.status(201));",
+                  "pm.test('granted 2, not partial, 8 remaining', () => { pm.expect(j.data.quantity).to.eql(2); pm.expect(j.data.partial).to.eql(false); pm.expect(j.data.remaining).to.eql(8); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/items/CORE-RESERVE/reservations",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"alice\",\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Proves: A reservation lowers the available stock."
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/items/CORE-RESERVE/reservations",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"userId\": \"alice\",\n  \"quantity\": 2\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\"data\":{\"id\":\"6e08a9e3-45c8-49a3-aad7-ccd290b2a014\",\"itemId\":\"3\",\"userId\":\"alice\",\"requestedQuantity\":2,\"quantity\":2,\"partial\":false,\"remaining\":8},\"meta\":{\"replayed\":false,\"strategy\":\"atomic\"}}"
+            }
+          ]
+        },
+        {
+          "id": "5313edeb-48d4-5783-8976-1742ad627347",
+          "name": "Partial fill: ask 5, only 3 left",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "eval(pm.variables.get('helpers'));",
+                  "(async () => {",
+                  "await call('PUT', '/api/v1/items/CORE-PARTIAL', { quantity: 3 });",
+                  "})();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test('201 created', () => pm.response.to.have.status(201));",
+                  "pm.test('asked 5, got 3, partial, 0 remaining', () => { pm.expect(j.data.requestedQuantity).to.eql(5); pm.expect(j.data.quantity).to.eql(3); pm.expect(j.data.partial).to.eql(true); pm.expect(j.data.remaining).to.eql(0); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/items/CORE-PARTIAL/reservations",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"alice\",\n  \"quantity\": 5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Proves: Asking for more than what is left gives what is left."
+          },
+          "response": [
+            {
+              "name": "201 Created (partial)",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/items/CORE-PARTIAL/reservations",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"userId\": \"alice\",\n  \"quantity\": 5\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\"data\":{\"id\":\"0b7f4b52-3f43-4c3a-8f0e-5d1c2a7e9b10\",\"itemId\":\"4\",\"userId\":\"alice\",\"requestedQuantity\":5,\"quantity\":3,\"partial\":true,\"remaining\":0},\"meta\":{\"replayed\":false,\"strategy\":\"atomic\"}}"
+            }
+          ]
+        },
+        {
+          "id": "46575983-8c0e-5a61-88f1-26009e97c1a8",
+          "name": "Sold out",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "eval(pm.variables.get('helpers'));",
+                  "(async () => {",
+                  "await call('PUT', '/api/v1/items/CORE-SOLDOUT', { quantity: 0 });",
+                  "})();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 OUT_OF_STOCK', () => { pm.response.to.have.status(409); pm.expect(pm.response.json().error.code).to.eql('OUT_OF_STOCK'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/items/CORE-SOLDOUT/reservations",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"bob\",\n  \"quantity\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Proves: An empty item rejects the reservation."
+          },
+          "response": [
+            {
+              "name": "409 Sold out",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/items/CORE-SOLDOUT/reservations",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"userId\": \"bob\",\n  \"quantity\": 1\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Conflict",
+              "code": 409,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\"error\":{\"code\":\"OUT_OF_STOCK\",\"message\":\"Item is sold out\"}}"
+            }
+          ]
+        },
+        {
+          "id": "e0dbd88a-d3fd-565c-8cd7-a58f81eeef5d",
+          "name": "Invalid input (quantity 0)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 VALIDATION_ERROR', () => { pm.response.to.have.status(400); pm.expect(pm.response.json().error.code).to.eql('VALIDATION_ERROR'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/items/CORE-RESERVE/reservations",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"alice\",\n  \"quantity\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Proves: Bad input is rejected before touching stock."
+          },
+          "response": [
+            {
+              "name": "400 Validation error",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/items/CORE-RESERVE/reservations",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"userId\": \"alice\",\n  \"quantity\": 0\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Invalid request\",\"details\":{\"quantity\":[\"Number must be greater than 0\"]}}}"
+            }
+          ]
+        },
+        {
+          "id": "cede1120-993f-539f-8985-58fb63e8c7e3",
+          "name": "Retry with Idempotency-Key",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "eval(pm.variables.get('helpers'));",
+                  "(async () => {",
+                  "await call('PUT', '/api/v1/items/CORE-IDEM', { quantity: 10 });",
+                  "const key = 'idem-' + Date.now();",
+                  "pm.variables.set('idemKey', key);",
+                  "await call('POST', '/api/v1/items/CORE-IDEM/reservations', { userId: 'alice', quantity: 2 }, { 'Idempotency-Key': key });",
+                  "})();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 replay, not a second 201', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().meta.replayed).to.eql(true); });",
+                  "pm.sendRequest(pm.variables.get('baseUrl') + '/api/v1/items/CORE-IDEM', (err, res) => {",
+                  "  const d = res.json().data;",
+                  "  pm.test('only one reservation exists (available 8)', () => { pm.expect(d.available).to.eql(8); pm.expect(d.reservationCount).to.eql(1); });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idemKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/items/CORE-IDEM/reservations",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"alice\",\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Proves: A repeated request (same key) does not reserve twice. The pre-request already sent it once."
+          },
+          "response": [
+            {
+              "name": "200 Replay",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{idemKey}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/items/CORE-IDEM/reservations",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"userId\": \"alice\",\n  \"quantity\": 2\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\"data\":{\"id\":\"6e08a9e3-45c8-49a3-aad7-ccd290b2a014\",\"itemId\":\"5\",\"userId\":\"alice\",\"requestedQuantity\":2,\"quantity\":2,\"partial\":false,\"remaining\":8},\"meta\":{\"replayed\":true,\"strategy\":\"atomic\"}}"
+            }
+          ]
+        },
+        {
+          "id": "44ef0e96-158a-5760-830d-e97ff8b896c4",
+          "name": "Get stock (ledger check)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const d = pm.response.json().data;",
+                  "pm.test('200 and consistent', () => { pm.response.to.have.status(200); pm.expect(d.consistent).to.eql(true); });",
+                  "pm.test('available + reserved = total', () => pm.expect(d.available + d.reservedQuantity).to.eql(d.totalQuantity));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/items/CORE-RESERVE",
+            "description": "Proves: Counter and reservation ledger agree. Run after 'Reserve 2 units'."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": "{{baseUrl}}/api/v1/items/CORE-RESERVE"
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\"data\":{\"sku\":\"CORE-RESERVE\",\"totalQuantity\":10,\"available\":8,\"reservedQuantity\":2,\"reservationCount\":1,\"distinctUsers\":1,\"consistent\":true,\"gate\":{\"available\":8,\"pendingWrites\":0}}}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3 · Concurrency",
+      "item": [
+        {
+          "id": "b5e96c29-94b8-5b7c-8c00-9629981106ce",
+          "name": "200 users, stock 100 · atomic (default)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "eval(pm.variables.get('helpers'));",
+                  "(async () => {",
+                  "const summary = await race({ sku: 'RACE-ATOMIC', stock: 100, users: 200, qty: 1, strategy: 'atomic' });",
+                  "pm.variables.set('summary', JSON.stringify(summary));",
+                  "})();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const s = JSON.parse(pm.variables.get('summary'));",
+                  "const d = pm.response.json().data;",
+                  "console.log('Result', JSON.stringify(s));",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('exactly 100 of 200 users win, 100 are told sold out', () => { pm.expect(s.accepted).to.eql(100); pm.expect(s.soldOut).to.eql(100); });",
+                  "pm.test('no overselling: reserved is 100, available is 0', () => { pm.expect(d.reservedQuantity).to.eql(100); pm.expect(d.available).to.eql(0); });",
+                  "pm.test('no 5xx and no failed calls', () => pm.expect(s.errors).to.eql(0));",
+                  "pm.test('counter matches ledger (consistent: true)', () => pm.expect(d.consistent).to.eql(true));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/items/RACE-ATOMIC",
+            "description": "Proves: 200 users hit 100 units at once and nobody oversells. Script-driven: the URL shown is the final stock check."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": "{{baseUrl}}/api/v1/items/RACE-ATOMIC"
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\"data\":{\"sku\":\"RACE-ATOMIC\",\"totalQuantity\":100,\"available\":0,\"reservedQuantity\":100,\"reservationCount\":100,\"distinctUsers\":100,\"consistent\":true,\"gate\":{\"available\":0,\"pendingWrites\":0}}}"
+            }
+          ]
+        },
+        {
+          "id": "a72e189a-7466-5144-8959-921842073434",
+          "name": "200 users, stock 100 · pessimistic",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "eval(pm.variables.get('helpers'));",
+                  "(async () => {",
+                  "const summary = await race({ sku: 'RACE-PESS', stock: 100, users: 200, qty: 1, strategy: 'pessimistic' });",
+                  "pm.variables.set('summary', JSON.stringify(summary));",
+                  "})();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const s = JSON.parse(pm.variables.get('summary'));",
+                  "const d = pm.response.json().data;",
+                  "console.log('Result', JSON.stringify(s));",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('exactly 100 of 200 users win, 100 are told sold out', () => { pm.expect(s.accepted).to.eql(100); pm.expect(s.soldOut).to.eql(100); });",
+                  "pm.test('no overselling: reserved is 100, available is 0', () => { pm.expect(d.reservedQuantity).to.eql(100); pm.expect(d.available).to.eql(0); });",
+                  "pm.test('no 5xx and no failed calls', () => pm.expect(s.errors).to.eql(0));",
+                  "pm.test('counter matches ledger (consistent: true)', () => pm.expect(d.consistent).to.eql(true));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/items/RACE-PESS",
+            "description": "Proves: Same race with the row-lock strategy."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": "{{baseUrl}}/api/v1/items/RACE-PESS"
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\"data\":{\"sku\":\"RACE-PESS\",\"totalQuantity\":100,\"available\":0,\"reservedQuantity\":100,\"reservationCount\":100,\"distinctUsers\":100,\"consistent\":true,\"gate\":{\"available\":0,\"pendingWrites\":0}}}"
+            }
+          ]
+        },
+        {
+          "id": "26248c83-3cd6-5894-845a-19c73e89e2ac",
+          "name": "200 users, stock 100 · naive (shows the bug)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "eval(pm.variables.get('helpers'));",
+                  "(async () => {",
+                  "const summary = await race({ sku: 'RACE-NAIVE', stock: 100, users: 200, qty: 1, strategy: 'naive' });",
+                  "pm.variables.set('summary', JSON.stringify(summary));",
+                  "})();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const s = JSON.parse(pm.variables.get('summary'));",
+                  "const d = pm.response.json().data;",
+                  "console.log('Result', JSON.stringify(s));",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('naive oversold as designed: reserved > total', () => pm.expect(d.reservedQuantity).to.be.above(d.totalQuantity));",
+                  "pm.test('books do not add up (consistent: false)', () => pm.expect(d.consistent).to.eql(false));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/items/RACE-NAIVE",
+            "description": "Proves: The unsafe strategy oversells, which proves the race is real. A green test here means the bug was shown."
+          },
+          "response": [
+            {
+              "name": "200 OK (oversold)",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": "{{baseUrl}}/api/v1/items/RACE-NAIVE"
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\"data\":{\"sku\":\"RACE-NAIVE\",\"totalQuantity\":100,\"available\":42,\"reservedQuantity\":158,\"reservationCount\":158,\"distinctUsers\":158,\"consistent\":false,\"gate\":{\"available\":null,\"pendingWrites\":0}}}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4 · Fast path (Redis)",
+      "item": [
+        {
+          "id": "861beef6-0bcc-509b-8c14-b410d5164a90",
+          "name": "Fast reserve: ask 5, only 3 left",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "eval(pm.variables.get('helpers'));",
+                  "(async () => {",
+                  "await call('PUT', '/api/v1/items/FAST-PARTIAL', { quantity: 3 });",
+                  "})();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test('202 accepted', () => pm.response.to.have.status(202));",
+                  "pm.test('asked 5, got 3, partial', () => { pm.expect(j.data.quantity).to.eql(3); pm.expect(j.data.partial).to.eql(true); pm.expect(j.data.remaining).to.eql(0); });",
+                  "pm.test('decided in redis', () => pm.expect(j.meta.path).to.eql('redis-gate'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/items/FAST-PARTIAL/reservations/fast",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"alice\",\n  \"quantity\": 5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Proves: The Redis path gives the same partial-fill answer, with 202."
+          },
+          "response": [
+            {
+              "name": "202 Accepted (partial)",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/items/FAST-PARTIAL/reservations/fast",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"userId\": \"alice\",\n  \"quantity\": 5\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\"data\":{\"id\":\"8b1d6f4a-2a43-4d0e-b7a1-6f2f3d9c5e22\",\"userId\":\"alice\",\"requestedQuantity\":5,\"quantity\":3,\"partial\":true,\"remaining\":0},\"meta\":{\"replayed\":false,\"path\":\"redis-gate\"}}"
+            }
+          ]
+        },
+        {
+          "id": "92376c17-62e1-5460-86a4-8022458fb78a",
+          "name": "200 users, stock 100 · fast path",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "eval(pm.variables.get('helpers'));",
+                  "(async () => {",
+                  "const summary = await race({ sku: 'FAST-RACE', stock: 100, users: 200, qty: 1, fast: true });",
+                  "pm.variables.set('summary', JSON.stringify(summary));",
+                  "})();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const s = JSON.parse(pm.variables.get('summary'));",
+                  "const d = pm.response.json().data;",
+                  "console.log('Result', JSON.stringify(s));",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('exactly 100 accepted (202), 100 sold out (409)', () => { pm.expect(s.accepted).to.eql(100); pm.expect(s.soldOut).to.eql(100); });",
+                  "pm.test('no overselling: reserved is 100, available is 0', () => { pm.expect(d.reservedQuantity).to.eql(100); pm.expect(d.available).to.eql(0); });",
+                  "pm.test('queue drained: nothing waiting for Postgres', () => { pm.expect(s.drained).to.eql(true); pm.expect(d.gate.pendingWrites).to.eql(0); });",
+                  "pm.test('counter matches ledger (consistent: true)', () => pm.expect(d.consistent).to.eql(true));",
+                  "pm.test('no 5xx and no failed calls', () => pm.expect(s.errors).to.eql(0));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/items/FAST-RACE",
+            "description": "Proves: No overselling on the Redis path, and the queue drains into Postgres. Script-driven."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": "{{baseUrl}}/api/v1/items/FAST-RACE"
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\"data\":{\"sku\":\"FAST-RACE\",\"totalQuantity\":100,\"available\":0,\"reservedQuantity\":100,\"reservationCount\":100,\"distinctUsers\":100,\"consistent\":true,\"gate\":{\"available\":0,\"pendingWrites\":0}}}"
+            }
+          ]
+        },
+        {
+          "id": "79deda9a-f17e-5acb-8245-125db42d1ae1",
+          "name": "Speed: normal vs fast (1,000 users)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "eval(pm.variables.get('helpers'));",
+                  "(async () => {",
+                  "const normal = await race({ sku: 'SPEED-NORMAL', stock: 100000, users: 1000, qty: 1 });",
+                  "const fast = await race({ sku: 'SPEED-FAST', stock: 100000, users: 1000, qty: 1, fast: true });",
+                  "pm.variables.set('speed', JSON.stringify({ normal: normal, fast: fast }));",
+                  "})();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const sp = JSON.parse(pm.variables.get('speed'));",
+                  "console.log('Speed', JSON.stringify(sp));",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('normal path: ' + sp.normal.accepted + ' accepted at ' + sp.normal.rps + ' req/s', () => { pm.expect(sp.normal.accepted).to.eql(1000); pm.expect(sp.normal.errors).to.eql(0); });",
+                  "pm.test('fast path: ' + sp.fast.accepted + ' accepted at ' + sp.fast.rps + ' req/s', () => { pm.expect(sp.fast.accepted).to.eql(1000); pm.expect(sp.fast.errors).to.eql(0); pm.expect(sp.fast.drained).to.eql(true); });",
+                  "pm.test('fast is faster (' + (sp.fast.rps / sp.normal.rps).toFixed(1) + 'x)', () => pm.expect(sp.fast.rps).to.be.above(sp.normal.rps));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/items/SPEED-FAST",
+            "description": "Proves: Both paths are correct; the fast path is faster. Script-driven, see the Console for requests/s."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": "{{baseUrl}}/api/v1/items/SPEED-FAST"
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\"data\":{\"sku\":\"SPEED-FAST\",\"totalQuantity\":100000,\"available\":99000,\"reservedQuantity\":1000,\"reservationCount\":1000,\"distinctUsers\":1000,\"consistent\":true,\"gate\":{\"available\":99000,\"pendingWrites\":0}}}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5 · Redis down (manual, run in order)",
+      "description": "Not for the Runner. Follow TESTING-SIMPLE.md: send 1, stop Redis, send 2 and 3, start Redis, send 4.",
+      "item": [
+        {
+          "id": "ae4d0162-da00-5c11-8d2c-073e52d8d4e5",
+          "name": "1 · Prepare (before stopping Redis)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "eval(pm.variables.get('helpers'));",
+                  "(async () => {",
+                  "await call('PUT', '/api/v1/items/DOWN-PLAIN', { quantity: 10 });",
+                  "})();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/items/DOWN-FAST",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 10\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Proves: Creates the fast item. The normal item is created by this request's pre-request."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/items/DOWN-FAST",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"quantity\": 10\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\"data\":{\"sku\":\"DOWN-FAST\",\"totalQuantity\":10,\"available\":10}}"
+            }
+          ]
+        },
+        {
+          "id": "fdc90d95-577d-54a9-8354-72eba2f71a86",
+          "name": "2 · Fast reserve while Redis is stopped",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('503 GATE_UNAVAILABLE', () => { pm.response.to.have.status(503); pm.expect(pm.response.json().error.code).to.eql('GATE_UNAVAILABLE'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/items/DOWN-FAST/reservations/fast",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"alice\",\n  \"quantity\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Proves: The fast path fails safely (about 2 s) when Redis is down."
+          },
+          "response": [
+            {
+              "name": "503 Gate unavailable",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/items/DOWN-FAST/reservations/fast",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"userId\": \"alice\",\n  \"quantity\": 1\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Service Unavailable",
+              "code": 503,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\"error\":{\"code\":\"GATE_UNAVAILABLE\",\"message\":\"Reservation gate (Redis) is unavailable, retry later\"}}"
+            }
+          ]
+        },
+        {
+          "id": "5ce7c294-06e5-598c-8663-fbe9a44addfe",
+          "name": "3 · Normal reserve while Redis is stopped",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201, normal path still works', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/items/DOWN-PLAIN/reservations",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"alice\",\n  \"quantity\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Proves: The normal path does not need Redis."
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/items/DOWN-PLAIN/reservations",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"userId\": \"alice\",\n  \"quantity\": 1\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\"data\":{\"id\":\"c1f1d0aa-6a7b-4a8e-9e10-1b2c3d4e5f60\",\"itemId\":\"7\",\"userId\":\"alice\",\"requestedQuantity\":1,\"quantity\":1,\"partial\":false,\"remaining\":9},\"meta\":{\"replayed\":false,\"strategy\":\"atomic\"}}"
+            }
+          ]
+        },
+        {
+          "id": "2312e8e0-5228-5ef3-843e-86397fb9789e",
+          "name": "4 · Fast reserve after Redis is back",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('202, fast path recovered', () => pm.response.to.have.status(202));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/items/DOWN-FAST/reservations/fast",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"alice\",\n  \"quantity\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Proves: The fast path recovers once Redis is started again (wait 5 s after starting it)."
+          },
+          "response": [
+            {
+              "name": "202 Accepted",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/items/DOWN-FAST/reservations/fast",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"userId\": \"alice\",\n  \"quantity\": 1\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\"data\":{\"id\":\"d2e2e1bb-7b8c-4b9f-8f21-2c3d4e5f6a71\",\"userId\":\"alice\",\"requestedQuantity\":1,\"quantity\":1,\"partial\":false,\"remaining\":9},\"meta\":{\"replayed\":false,\"path\":\"redis-gate\"}}"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "idemKey",
+      "value": ""
+    },
+    {
+      "key": "helpers",
+      "value": "const base = pm.variables.get('baseUrl');\nfunction call(method, path, body, headers, baseUrl) {\nreturn new Promise(resolve => {\npm.sendRequest({\nurl: (baseUrl || base) + path, method: method,\nheader: Object.assign({ 'Content-Type': 'application/json' }, headers || {}),\nbody: body === undefined ? undefined : { mode: 'raw', raw: JSON.stringify(body) }\n}, (err, res) => {\nlet json = null;\ntry { json = res ? res.json() : null; } catch (e) {}\nresolve({ failed: !!err, status: res ? res.code : 0, json: json });\n});\n});\n}\nconst sleep = ms => new Promise(r => setTimeout(r, ms));\nasync function waitDrain(sku) {\nfor (let i = 0; i < 200; i++) {\nconst r = await call('GET', '/api/v1/items/' + sku);\nconst g = r.json && r.json.data && r.json.data.gate;\nif (g && g.pendingWrites === 0) return true;\nawait sleep(100);\n}\nreturn false;\n}\nasync function race(o) {\nawait call('PUT', '/api/v1/items/' + o.sku, { quantity: o.stock });\nconst path = '/api/v1/items/' + o.sku + '/reservations' + (o.fast ? '/fast' : '');\nconst started = Date.now();\nconst jobs = [];\nfor (let i = 0; i < o.users; i++) {\nconst requested = o.qty === 'random' ? 1 + Math.floor(Math.random() * 3) : o.qty;\nconst headers = o.strategy ? { 'x-reservation-strategy': o.strategy } : {};\nconst bu = o.bases ? o.bases[i % o.bases.length] : undefined;\njobs.push(call('POST', path, { userId: 'user-' + (i + 1), quantity: requested }, headers, bu)\n.then(r => { r.requested = requested; return r; }));\n}\nconst results = await Promise.all(jobs);\nconst wallMs = Date.now() - started;\nconst okStatus = o.fast ? 202 : 201;\nconst accepted = results.filter(r => r.status === okStatus);\nconst granted = accepted.reduce((t, r) => t + ((r.json && r.json.data && r.json.data.quantity) || 0), 0);\nconst drained = o.fast ? await waitDrain(o.sku) : true;\nreturn {\nusers: o.users, stock: o.stock, accepted: accepted.length,\nsoldOut: results.filter(r => r.status === 409).length,\nerrors: results.filter(r => r.failed || r.status >= 500 || r.status === 0).length,\ngranted: granted, partials: accepted.filter(r => r.json.data.quantity < r.requested).length,\ndemand: results.reduce((t, r) => t + r.requested, 0),\nwallMs: wallMs, rps: Math.round(o.users / (wallMs / 1000)), drained: drained\n};\n}"
+    }
+  ]
+}
