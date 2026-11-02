@@ -5,7 +5,14 @@ import { runLoadTest } from "./load-test";
 async function main() {
   const rows = [];
   for (const strategy of ["atomic", "pessimistic", "naive"]) {
-    const s = await runLoadTest({ strategy, sku: `CMP-${strategy}`, qty: "1", quiet: true });
+    const s = await runLoadTest({
+      strategy,
+      sku: `CMP-${strategy}`,
+      qty: "1",
+      // For random qty, uncomment the line below. It will generate a random number between 1 and 10, but will default to 1 if the random number is 0. s
+      // qty: (Math.random() * 10 || 1).toPrecision(1)
+      quiet: true,
+    });
     rows.push({
       strategy,
       "201s": s.succeeded,
